@@ -11,6 +11,7 @@ Then open the printed URL. Personal, non-commercial use only — cite adsb.fi.
 """
 
 import json
+import math
 import os
 import time
 import urllib.error
@@ -25,6 +26,7 @@ UPSTREAMS = (
     ("adsb.lol", "https://api.adsb.lol/v2/point/{lat}/{lon}/{nm}"),
 )
 CACHE_SECONDS = 9
+EARTH_NM = 3440.065
 cache = {}
 
 
@@ -72,7 +74,53 @@ def normalize(raw):
     }
 
 
-def pull(lat, lon, nm):
+def destination(lat, lon, bearing_deg, distance_nm):
+    delta = distance_nm / EARTH_NM
+    theta = math.radians(bearing_deg)
+    phi1 = math.radians(lat)
+    lam1 = math.radians(lon)
+    phi2 = math.asin(
+        math.sin(phi1) * math.cos(delta) + math.cos(phi1) * math.sin(delta) * math.cos(theta)
+    )
+    lam2 = lam1 + math.atan2(
+        math.sin(theta) * math.sin(delta) * math.cos(phi1),
+        math.cos(delta) - math.sin(phi1) * math.sin(phi2),
+    )
+    lon2 = (math.degrees(lam2) + 540) % 360 - 180
+    return math.degrees(phi2), lon2
+
+
+def haversine_nm(lat1, lon1, lat2, lon2):
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = phi2 - phi1
+    dlam = math.radians(lon2 - lon1)
+    h = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlam / 2) ** 2
+    return 2 * EARTH_NM * math.asin(min(1, math.sqrt(h)))
+
+
+def compass(bearing):
+    names = (
+        "north",
+        "northeast",
+        "east",
+        "southeast",
+        "south",
+        "southwest",
+        "west",
+        "northwest",
+    )
+    return names[int((bearing + 22.5) // 45) % 8]
+
+
+def initial_bearing(lat1, lon1, lat2, lon2):
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dlam = math.radians(lon2 - lon1)
+    y = math.sin(dlam) * math.cos(phi2)
+    x = math.cos(phi1) * math.sin(phi2) - math.sin(phi1) * math.cos(phi2) * math.cos(dlam)
+    return (math.degrees(math.atan2(y, x)) + 360) % 360
+
+
+def query(lat, lon, nm):
     failures = []
     headers = {
         "User-Agent": "TinyRadar/1.0 (personal local scanner)",
@@ -97,15 +145,61 @@ def pull(lat, lon, nm):
             item = normalize(raw)
             if item:
                 aircraft.append(item)
-        aircraft.sort(key=lambda item: (item["lat"] - lat) ** 2 + (item["lon"] - lon) ** 2)
-        return {
-            "source": name,
-            "count": len(aircraft[:400]),
-            "aircraft": aircraft[:400],
-        }
-    if 429 in failures:
-        raise RuntimeError("The traffic feed is busy. Trying again shortly.")
-    raise RuntimeError("The traffic feed is unreachable.")
+        return name, aircraft, failures
+    return None, [], failures
+
+
+def pull(lat, lon, nm):
+    source, aircraft, failures = query(lat, lon, nm)
+    widened = False
+    if source is not None and not aircraft and nm < 250:
+        time.sleep(1.05)
+        source, aircraft, more = query(lat, lon, 250)
+        failures.extend(more)
+        widened = True
+    if source is not None and not aircraft:
+        for bearing in (0, 315, 45, 270, 180):
+            time.sleep(1.05)
+            qlat, qlon = destination(lat, lon, bearing, 220)
+            found_source, found, more = query(qlat, qlon, 250)
+            failures.extend(more)
+            if found_source:
+                source = found_source
+            nearby = [
+                item
+                for item in found
+                if haversine_nm(lat, lon, item["lat"], item["lon"]) <= 480
+            ]
+            if nearby:
+                aircraft = nearby
+                widened = True
+                break
+    if source is None:
+        if 429 in failures:
+            raise RuntimeError("The traffic feed is busy. Trying again shortly.")
+        raise RuntimeError("The traffic feed is unreachable.")
+    aircraft.sort(key=lambda item: haversine_nm(lat, lon, item["lat"], item["lon"]))
+    in_range = 0
+    nearest = None
+    direction = ""
+    for item in aircraft:
+        distance = haversine_nm(lat, lon, item["lat"], item["lon"])
+        item["distanceNm"] = round(distance, 1)
+        if distance <= nm + 2:
+            in_range += 1
+        elif nearest is None:
+            nearest = distance
+            direction = compass(initial_bearing(lat, lon, item["lat"], item["lon"]))
+    expanded = bool(widened and in_range == 0 and aircraft)
+    return {
+        "source": source,
+        "count": len(aircraft[:400]),
+        "inRange": in_range,
+        "nearestNm": None if nearest is None else round(nearest),
+        "direction": direction if expanded else "",
+        "expanded": expanded,
+        "aircraft": aircraft[:400],
+    }
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -139,7 +233,7 @@ class Handler(SimpleHTTPRequestHandler):
         key = (round(lat, 2), round(lon, 2), nm)
         cached = cache.get(key)
         now = time.monotonic()
-        if cached and now - cached[0] < CACHE_SECONDS:
+        if cached and now - cached[0] < cached[2]:
             self.respond(200, cached[1])
             return
         try:
@@ -147,7 +241,8 @@ class Handler(SimpleHTTPRequestHandler):
         except RuntimeError as exc:
             self.respond(502, {"error": str(exc)})
             return
-        cache[key] = (now, payload)
+        ttl = 20 if payload.get("expanded") else CACHE_SECONDS
+        cache[key] = (now, payload, ttl)
         self.respond(200, payload)
 
     def respond(self, status, payload):

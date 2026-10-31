@@ -48,6 +48,8 @@ let routeActive = 0;
 let airlines = {};
 let center = null;
 let rangeNm = 40;
+let trackNm = 40;
+let expandedKey = "";
 let armPin = false;
 let selected = null;
 let hits = [];
@@ -771,7 +773,7 @@ const RadarLayer = L.Layer.extend({
   },
   _strokeClipped(ctx, points, color, width, dash) {
     if (!center || points.length < 2) return;
-    for (const run of clipToDisk(points, center, rangeNm)) {
+    for (const run of clipToDisk(points, center, trackNm)) {
       if (spanNm(run) > 0.25) paintLine(ctx, tracePoints(this._map, run), color, width, dash);
     }
   },
@@ -884,15 +886,34 @@ function pick(point) {
   return best;
 }
 
-function fit() {
-  if (!center) return;
-  const corners = [0, 90, 180, 270].map((deg) => destination(center.lat, center.lon, deg, rangeNm));
-  map.fitBounds(corners.map((point) => [point.lat, point.lon]), {
+function fitBounds(points, maxZoom) {
+  map.fitBounds(points, {
     paddingTopLeft: [28, 86],
     paddingBottomRight: [28, 78],
     animate: motionOn(),
-    maxZoom: 12,
+    maxZoom,
   });
+}
+
+function fit() {
+  if (!center) return;
+  if (trackNm > rangeNm + 5 && planes.size) {
+    const points = [[center.lat, center.lon]];
+    for (const ac of planes.values()) {
+      const place = ac.fix || ac.to;
+      if (place) points.push([place.lat, place.lon]);
+    }
+    fitBounds(points, 7);
+    return;
+  }
+  const corners = [0, 90, 180, 270].map((deg) => destination(center.lat, center.lon, deg, rangeNm));
+  fitBounds(corners.map((point) => [point.lat, point.lon]), 12);
+}
+
+function fitExpanded(aircraft) {
+  if (!center || !aircraft.length) return;
+  const points = [[center.lat, center.lon], ...aircraft.map((item) => [item.lat, item.lon])];
+  fitBounds(points, 7);
 }
 
 function adopt(lat, lon, fitView) {
@@ -905,6 +926,7 @@ function adopt(lat, lon, fitView) {
   const relocated = first || fitView || distanceNm(center, next) >= 0.5;
   if (!first && !shifted && !fitView) return;
   center = next;
+  expandedKey = "";
   hideGate();
   armPin = false;
   document.querySelector("#place").setAttribute("aria-pressed", "false");
@@ -938,7 +960,20 @@ async function scan() {
     applyTraffic(body.aircraft || [], performance.now());
     noteSource(body.source);
     const count = body.count ?? (body.aircraft || []).length;
-    setStatus(count === 0 ? "No airborne traffic in range" : `${count} airborne`);
+    if (body.expanded && body.nearestNm) {
+      const way = body.direction ? ` ${body.direction}` : "";
+      setStatus(`No flights inside ${nm} nm. Nearest is ${body.nearestNm} nm${way}.`);
+      trackNm = Math.max(nm, body.nearestNm + 70);
+      const key = `${here.lat.toFixed(1)}:${here.lon.toFixed(1)}:${nm}:${Math.round(body.nearestNm / 25)}`;
+      if (expandedKey !== key) {
+        expandedKey = key;
+        fitExpanded(body.aircraft || []);
+      }
+    } else {
+      expandedKey = "";
+      trackNm = nm;
+      setStatus(count === 0 ? "No airborne traffic in range" : `${count} airborne`);
+    }
     setUpdated(new Date());
     setLive("ok");
   } catch (error) {
@@ -950,6 +985,8 @@ async function scan() {
 
 function setRange(nm) {
   rangeNm = nm;
+  trackNm = nm;
+  expandedKey = "";
   for (const button of rangeButtons) {
     button.setAttribute("aria-pressed", button.dataset.nm === String(nm) ? "true" : "false");
   }
