@@ -1,0 +1,344 @@
+:root {
+  color-scheme: dark;
+  --ink: #07110e;
+  --paper: rgba(7, 16, 13, 0.82);
+  --line: rgba(200, 245, 216, 0.16);
+  --text: #eef8f2;
+  --muted: rgba(215, 245, 228, 0.62);
+  --faint: rgba(215, 245, 228, 0.42);
+  --phosphor: #c8f5d8;
+  --flown: #e2a84a;
+  --ahead: #79c7ff;
+  --sans: "Avenir Next", "Segoe UI", sans-serif;
+  --mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+  background: var(--ink);
+  color: var(--text);
+  font-family: var(--sans);
+}
+
+button, p, h1, dl, dd { margin: 0; }
+
+button {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--phosphor);
+  outline-offset: 2px;
+}
+
+#map {
+  position: absolute;
+  inset: 0;
+  background: var(--ink);
+}
+
+.leaflet-container { background: var(--ink); font-family: var(--sans); }
+
+.leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) saturate(0.2) brightness(0.82) contrast(0.95);
+}
+
+.leaflet-bar {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: none;
+}
+
+.leaflet-bar a {
+  width: 32px;
+  height: 32px;
+  line-height: 32px;
+  background: var(--paper);
+  color: var(--phosphor);
+  border-bottom-color: var(--line);
+}
+
+.leaflet-bar a:hover,
+.leaflet-bar a:focus { background: #10241c; color: white; }
+
+.leaflet-control-attribution {
+  background: rgba(7, 16, 13, 0.72);
+  color: var(--faint);
+  font-size: 10px;
+  max-width: 46vw;
+}
+
+.leaflet-control-attribution a { color: var(--muted); }
+
+.radar-canvas {
+  pointer-events: none;
+}
+
+.top, .bottom, .gate, .detail {
+  position: absolute;
+  z-index: 500;
+}
+
+.top {
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: max(14px, env(safe-area-inset-top)) 14px 0;
+  pointer-events: none;
+}
+
+.brand, .controls, .plate, .detail, .gate {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  backdrop-filter: blur(12px);
+}
+
+.brand, .controls { pointer-events: auto; }
+
+.brand { padding: 10px 14px 11px; min-width: 180px; }
+
+.brand-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+h1 {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--flown);
+  box-shadow: 0 0 0 3px rgba(226, 168, 74, 0.15);
+}
+
+.live-dot.ok {
+  background: var(--phosphor);
+  box-shadow: 0 0 0 3px rgba(200, 245, 216, 0.14);
+  animation: blink 2.6s ease-in-out infinite;
+}
+
+.live-dot.bad {
+  background: #ff8f7a;
+  box-shadow: 0 0 0 3px rgba(255, 143, 122, 0.16);
+}
+
+#status {
+  margin-top: 4px;
+  font-size: 13px;
+  letter-spacing: 0.01em;
+}
+
+.updated {
+  margin-top: 2px;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+}
+
+.range {
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.range button, .controls > button {
+  min-width: 36px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.range button[aria-pressed="true"],
+#place[aria-pressed="true"] {
+  background: rgba(200, 245, 216, 0.16);
+  color: var(--text);
+}
+
+.range button:hover,
+.controls > button:hover { color: var(--text); }
+
+.unit {
+  padding: 0 8px 0 4px;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.gate {
+  left: 50%;
+  top: 46%;
+  transform: translate(-50%, -50%);
+  width: min(340px, calc(100% - 32px));
+  padding: 14px 16px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.45;
+  pointer-events: none;
+}
+
+.detail {
+  top: 92px;
+  left: 14px;
+  width: min(300px, calc(100% - 28px));
+  padding: 14px 14px 12px;
+}
+
+.detail-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  padding: 4px 6px;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.detail-op {
+  padding-right: 52px;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.detail-sub, .detail-route, .detail-progress {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.detail-sub { font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em; }
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.facts dt {
+  color: var(--faint);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.facts dd {
+  margin-top: 3px;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.detail-progress { color: var(--ahead); }
+
+.bottom {
+  left: 14px;
+  right: 14px;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  display: flex;
+  pointer-events: none;
+}
+
+.plate {
+  max-width: min(440px, calc(100% - 88px));
+  padding: 8px 12px 9px;
+}
+
+.legend, .credits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  align-items: center;
+}
+
+.legend {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+
+.swatch {
+  display: inline-block;
+  width: 16px;
+  height: 0;
+  border-top: 2px solid var(--flown);
+}
+
+.swatch.ahead { border-top: 2px dashed var(--ahead); }
+
+.credits {
+  margin-top: 3px;
+  color: var(--faint);
+  font-size: 10px;
+}
+
+.credits a {
+  color: var(--muted);
+  pointer-events: auto;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@media (max-width: 680px) {
+  .top { flex-direction: column; }
+  .controls { align-self: flex-start; }
+  .detail {
+    top: auto;
+    bottom: 78px;
+    left: 12px;
+    right: 12px;
+    width: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot.ok { animation: none; }
+}
